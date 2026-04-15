@@ -1,0 +1,261 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum PaymentType {
+  ALIPAY
+  WXPAY
+  QQPAY
+  UNIONPAY
+  BANK
+}
+
+enum ChannelProvider {
+  ALIPAY_OFFICIAL
+  WECHAT_OFFICIAL
+}
+
+enum ChannelMode {
+  H5
+  JSAPI
+  MINI_PROGRAM
+  NATIVE
+  BARCODE
+  APP
+}
+
+enum ChannelStatus {
+  ENABLED
+  DISABLED
+  MAINTENANCE
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SUCCESS
+  FAILED
+  CLOSED
+  REFUNDED
+}
+
+enum NotifyStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum ReconcileStatus {
+  PENDING
+  MATCHED
+  UNMATCHED
+  EXCEPTION
+}
+
+model AdminUser {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  passwordHash String
+  displayName  String
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Merchant {
+  id                  String                   @id @default(cuid())
+  name                String
+  pid                 String                   @unique
+  apiKey              String
+  callbackWhitelist   String[]
+  allowedPaymentTypes PaymentType[]
+  notifyRetryLimit    Int                      @default(6)
+  orderTimeoutMinutes Int                      @default(30)
+  rateConfig          Json?
+  status              UserStatus               @default(ACTIVE)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  users               MerchantUser[]
+  channelBindings     MerchantChannelBinding[]
+  orders              PaymentOrder[]
+  refunds             RefundOrder[]
+  reconciliationTasks ReconciliationTask[]
+  settlements         SettlementRecord[]
+}
+
+model MerchantUser {
+  id           String     @id @default(cuid())
+  merchantId   String
+  username     String
+  passwordHash String
+  displayName  String
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  merchant     Merchant   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, username])
+}
+
+model PaymentChannel {
+  id               String                   @id @default(cuid())
+  code             String                   @unique
+  name             String
+  provider         ChannelProvider
+  supportedTypes   PaymentType[]
+  supportedModes   ChannelMode[]
+  status           ChannelStatus            @default(ENABLED)
+  routePriority    Int                      @default(100)
+  globalLimitMin   Decimal?                 @db.Decimal(18, 2)
+  globalLimitMax   Decimal?                 @db.Decimal(18, 2)
+  config           Json
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  merchantBindings MerchantChannelBinding[]
+  orders           PaymentOrder[]
+}
+
+model MerchantChannelBinding {
+  id               String         @id @default(cuid())
+  merchantId       String
+  channelId        String
+  status           ChannelStatus  @default(ENABLED)
+  routeWeight      Int            @default(100)
+  feeRate          Decimal?       @db.Decimal(8, 4)
+  singleLimitMin   Decimal?       @db.Decimal(18, 2)
+  singleLimitMax   Decimal?       @db.Decimal(18, 2)
+  credentialConfig Json
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  merchant         Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  channel          PaymentChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, channelId])
+}
+
+model PaymentOrder {
+  id               String                 @id @default(cuid())
+  merchantId       String
+  channelId        String?
+  bindingId        String?
+  epayTradeNo      String                 @unique
+  merchantTradeNo  String
+  paymentType      PaymentType
+  subject          String
+  body             String?
+  amount           Decimal                @db.Decimal(18, 2)
+  paidAmount       Decimal?               @db.Decimal(18, 2)
+  status           OrderStatus            @default(PENDING)
+  clientIp         String?
+  device           String?
+  notifyUrl        String
+  returnUrl        String?
+  providerTradeNo  String?
+  providerPayload  Json?
+  paidAt           DateTime?
+  expiredAt        DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  merchant         Merchant               @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  channel          PaymentChannel?        @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  callbacks        PaymentCallbackLog[]
+  refunds          RefundOrder[]
+  reconcileRecords ReconciliationRecord[]
+
+  @@unique([merchantId, merchantTradeNo])
+  @@index([status, createdAt])
+}
+
+model PaymentCallbackLog {
+  id             String       @id @default(cuid())
+  orderId        String
+  callbackType   String
+  requestId      String?
+  requestBody    Json?
+  requestHeaders Json?
+  responseBody   String?
+  notifyStatus   NotifyStatus @default(PENDING)
+  retryCount     Int          @default(0)
+  handledAt      DateTime?
+  createdAt      DateTime     @default(now())
+  order          PaymentOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, callbackType])
+}
+
+model RefundOrder {
+  id               String       @id @default(cuid())
+  merchantId       String
+  orderId          String
+  refundTradeNo    String       @unique
+  amount           Decimal      @db.Decimal(18, 2)
+  reason           String?
+  status           RefundStatus @default(PENDING)
+  providerRefundNo String?
+  providerPayload  Json?
+  completedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  merchant         Merchant     @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  order            PaymentOrder @relation(fields: [orderId], references: [id], onDelete: Restrict)
+}
+
+model ReconciliationTask {
+  id         String                 @id @default(cuid())
+  merchantId String
+  taskDate   DateTime
+  provider   ChannelProvider
+  status     ReconcileStatus        @default(PENDING)
+  summary    Json?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  merchant   Merchant               @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  records    ReconciliationRecord[]
+
+  @@unique([merchantId, taskDate, provider])
+}
+
+model ReconciliationRecord {
+  id              String             @id @default(cuid())
+  taskId          String
+  orderId         String?
+  providerTradeNo String?
+  localAmount     Decimal?           @db.Decimal(18, 2)
+  providerAmount  Decimal?           @db.Decimal(18, 2)
+  status          ReconcileStatus    @default(PENDING)
+  diffReason      String?
+  createdAt       DateTime           @default(now())
+  task            ReconciliationTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  order           PaymentOrder?      @relation(fields: [orderId], references: [id], onDelete: SetNull)
+}
+
+model SettlementRecord {
+  id          String   @id @default(cuid())
+  merchantId  String
+  settleDate  DateTime
+  totalAmount Decimal  @db.Decimal(18, 2)
+  feeAmount   Decimal  @db.Decimal(18, 2)
+  netAmount   Decimal  @db.Decimal(18, 2)
+  remark      String?
+  createdAt   DateTime @default(now())
+  merchant    Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantId, settleDate])
+}

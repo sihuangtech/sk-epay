@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+.turbo/
+.next/
+dist/
+coverage/
+.cache/
+
+# env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+apps/api/.env
+apps/web/.env.local
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# misc
+.DS_Store
+.idea/
+.vscode/
+
+# skill / reference code
+.claude/
+
+# prisma / temp
+apps/api/prisma/dev.db
+apps/api/prisma/dev.db-journal
+*.tsbuildinfo
